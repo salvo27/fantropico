@@ -11,9 +11,10 @@ Fantropico non è affiliato ad Anthropic.
 ```
 fantropico/
 ├─ package.json            workspace npm (web e worker)
+├─ wrangler.jsonc          pubblicazione del sito come file statici su Cloudflare
 ├─ .nvmrc                  versione di Node (24)
 ├─ regolamento-esempio.md  regolamento generico per le prove
-├─ web/                    sito su Cloudflare Pages (Vite e JavaScript semplice)
+├─ web/                    sito (Vite e JavaScript semplice)
 └─ worker/                 API su Cloudflare Workers (TypeScript)
    ├─ wrangler.jsonc       binding D1 e KV, ALLOWED_ORIGIN, cron
    ├─ migrations/          schema del database D1
@@ -138,7 +139,7 @@ npx wrangler secret put ENCRYPTION_KEY
 
 Conserva `ENCRYPTION_KEY` in un posto sicuro. Se la perdi o la cambi, le chiavi API salvate non si possono più leggere e ogni admin dovrà reinserire la propria. Se cambi `SESSION_SECRET`, tutti dovranno rientrare nella lega.
 
-In `worker/wrangler.jsonc` imposta `ALLOWED_ORIGIN` con l'indirizzo del sito su Pages, per esempio `https://fantropico.pages.dev`.
+In `worker/wrangler.jsonc` imposta `ALLOWED_ORIGIN` con l'indirizzo del sito, cioè `https://fantropico.<sottodominio>.workers.dev`. Il sottodominio è quello del tuo account Cloudflare, lo stesso che compare nell'indirizzo del Worker API.
 
 Torna nella radice del progetto:
 
@@ -158,19 +159,20 @@ Pubblica il Worker. Annota l'indirizzo stampato, per esempio `https://fantropico
 npm run deploy -w worker
 ```
 
-### 2. Sito su Cloudflare Pages
+### 2. Sito su Cloudflare
+
+Il sito è un secondo Worker, `fantropico`, che serve solo i file statici di `web/dist`. La configurazione è in `wrangler.jsonc` nella radice del progetto.
 
 1. Carica il progetto su un repository GitHub privato. I file `.dev.vars` e `.env` sono già esclusi da `.gitignore`.
-2. Nella dashboard di Cloudflare crea un progetto Pages collegato a quel repository.
+2. Nella dashboard di Cloudflare, in Workers & Pages, crea un Worker importando quel repository. Il nome deve essere `fantropico`, come in `wrangler.jsonc`.
 3. Impostazioni di build:
-   - Framework preset: None
    - Root directory: la radice del repository
    - Build command: `npm run build`
-   - Build output directory: `web/dist`
-4. Variabili d'ambiente di build:
-   - `VITE_API_BASE` con l'indirizzo del Worker, per esempio `https://fantropico-api.<account>.workers.dev`
-   - `NODE_VERSION` = `24`, se Pages non legge da solo il file `.nvmrc`
-5. Avvia il primo deploy.
+   - Deploy command: `npx wrangler deploy`
+4. Variabili di build:
+   - `VITE_API_BASE` con l'indirizzo del Worker API, per esempio `https://fantropico-api.<sottodominio>.workers.dev`
+   - `NODE_VERSION` = `24`, se la build non legge da sola il file `.nvmrc`
+5. Avvia il primo deploy. Da lì ogni push su GitHub ripubblica il sito.
 
 Durante la build vengono generati gli header di sicurezza del sito e la Content Security Policy, nel file `web/dist/_headers`, a partire da `VITE_API_BASE`.
 

@@ -1,6 +1,6 @@
 import { defineConfig, loadEnv } from "vite";
 
-// In build genera dist/_headers per Cloudflare Pages: CSP stretta che permette di parlare solo con il Worker
+// In build genera dist/_headers per Cloudflare: CSP stretta che permette di parlare solo con il Worker
 function securityHeaders(apiBase) {
   return {
     name: "fantropico-security-headers",
