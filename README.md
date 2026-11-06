@@ -26,7 +26,7 @@ fantropico/
 - Node 24. Con nvm basta lanciare `nvm use` nella radice del progetto.
 - Un account Cloudflare.
 - Una chiave API di Anthropic per ogni lega. Non va nel codice: la inserisce l'admin dal sito quando crea la lega.
-- Per la verifica infortuni, la ricerca web deve essere abilitata nella Console Anthropic dell'admin (è attiva di default, ma un amministratore dell'organizzazione può spegnerla).
+- Per la verifica infortuni, ricerca web e lettura delle pagine (web fetch) devono essere abilitate nella Console Anthropic dell'admin (sono attive di default, ma un amministratore dell'organizzazione può spegnerle).
 
 ## Sviluppo locale
 
@@ -176,6 +176,8 @@ Durante la build vengono generati gli header di sicurezza del sito e la Content 
 
 ### 3. Controllo finale
 
+L'anteprima dei link condivisi (WhatsApp, Telegram, X) usa l'immagine `web/public/og.png` e i meta tag in `web/index.html`, che puntano a `https://fantropico.pages.dev`. Se il sito ha un altro indirizzo, aggiorna `og:url` e `og:image`.
+
 Dopo il primo deploy del sito controlla che `ALLOWED_ORIGIN` in `worker/wrangler.jsonc` coincida esattamente con l'origin del sito: stesso protocollo e dominio, niente slash finale. Il Worker accetta solo richieste da quell'origin. Se lo hai cambiato, pubblica di nuovo il Worker:
 
 ```bash
@@ -218,9 +220,10 @@ Per entrare come admin da un altro dispositivo usa "Accesso admin" con codice le
 Verifica infortuni (se l'admin la attiva):
 
 - Si usa dal modulo "Verifica sostituzione", indicando il giocatore infortunato e il sostituto. La ricerca web parte solo da lì.
-- Il bot cerca solo su fantacalcio.it e leghe.fantacalcio.it i tempi di recupero dell'infortunato e la quotazione attuale dei due giocatori, poi applica la regola del regolamento.
+- I tempi di recupero il bot li legge solo dalla pagina [Infortunati Serie A](https://www.fantacalcio.it/infortunati-serie-a) di fantacalcio.it: è l'unica pagina che può aprire. Se l'infortunato non c'è, o la pagina non si legge, risponde che non ha trovato informazioni chiare e rimanda all'admin.
+- Se la pagina dà solo un'ipotesi di rientro, o più scenari (per esempio 6 settimane, ma 4 mesi in caso di operazione), conta il tempo più breve. Se è sotto la durata minima del regolamento, la risposta è "No" e bisogna attendere l'ufficialità.
+- La quotazione attuale dei due giocatori la cerca con la ricerca web, solo su fantacalcio.it e leghe.fantacalcio.it. Poi applica la regola del regolamento.
 - La risposta è un parere indicativo con i link alle fonti, la data del controllo e la frase "La conferma finale spetta all'admin."
-- Se le informazioni non si trovano o non sono chiare, lo dice e rimanda all'admin.
 
 ## Sicurezza in breve
 
@@ -241,7 +244,8 @@ Verifica infortuni (se l'admin la attiva):
 ## Costi e limiti
 
 - Modello: `claude-haiku-5-5`. I prezzi cambiano, verificali sulla pagina prezzi di Anthropic. Il regolamento viene messo in cache tra una domanda e l'altra per ridurre il costo.
-- Ricerca web: 10 $ ogni 1.000 ricerche, più i token. Ogni verifica fa al massimo 5 ricerche.
+- Ricerca web: 10 $ ogni 1.000 ricerche, più i token. Ogni verifica fa al massimo 5 ricerche. La lettura della pagina degli infortunati costa solo i token, circa 6.000 in ingresso.
+- Ricerca web e lettura delle pagine devono essere attive nella pagina Capabilities della Console Anthropic dell'admin.
 - Tutti i costi del modello vanno sulla chiave API dell'admin della lega.
 - Piano gratuito dei Workers: 10 ms di CPU per richiesta. L'hash della password ha misurato circa 5,6 ms in locale. Se in produzione il login admin, la creazione della lega o il cambio password danno errori di CPU, serve il piano Workers Paid (5 $ al mese).
 

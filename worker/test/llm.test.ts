@@ -101,6 +101,32 @@ const searchResult = (id: string) => ({
   caller: { type: "direct" },
   content: [{ type: "web_search_result", url: "https://www.fantacalcio.it/x", title: "x", encrypted_content: "ZW5j", page_age: null }],
 });
+const INJURY_PAGE = "https://www.fantacalcio.it/infortunati-serie-a";
+const PAGE_SOURCE = { url: INJURY_PAGE, title: "Infortunati Serie A" };
+const fetchUse = (id: string, url = INJURY_PAGE) => ({ type: "server_tool_use", id, name: "web_fetch", input: { url } });
+const fetchResult = (id: string, url = INJURY_PAGE) => ({
+  type: "web_fetch_tool_result",
+  tool_use_id: id,
+  caller: { type: "direct" },
+  content: {
+    type: "web_fetch_result",
+    url,
+    retrieved_at: "2026-11-06T10:00:00Z",
+    content: {
+      type: "document",
+      source: { type: "text", media_type: "text/plain", data: "Rossetti: rientro previsto a febbraio" },
+      title: "Titolo scelto dal sito",
+      citations: null,
+    },
+  },
+});
+const fetchError = (id: string) => ({
+  type: "web_fetch_tool_result",
+  tool_use_id: id,
+  caller: { type: "direct" },
+  content: { type: "web_fetch_tool_result_error", error_code: "url_not_accessible" },
+});
+const pageRead = [fetchUse("f1"), fetchResult("f1")];
 const cite = (url: string, title = "Fantacalcio") => ({
   type: "web_search_result_location",
   url,
@@ -284,13 +310,23 @@ describe("answerRuleQuestion", () => {
 describe("checkInjurySubstitution", () => {
   const verdict = "Sì: è fuori circa tre mesi e il sostituto vale 12 contro 15, quindi puoi farlo (Art. 7.2).";
 
-  it("invia la ricerca web limitata a fantacalcio.it con chiamate dirette", async () => {
+  it("legge solo la pagina degli infortunati e cerca su fantacalcio.it, con chiamate dirette", async () => {
     const { llm, calls } = provider([message([text("Nessun dato.")])]);
     await llm.checkInjurySubstitution(injuryInput());
     const body = calls[0]!.body;
     expect(body.model).toBe("claude-haiku-5-5");
     expect(body.output_config).toEqual({ effort: "medium" });
     expect(body.tools).toEqual([
+      {
+        type: "web_fetch_20260318",
+        name: "web_fetch",
+        allowed_domains: ["www.fantacalcio.it"],
+        allowed_callers: ["direct"],
+        url_sources: { user_input: { type: "all" }, server_tool_results: { type: "none" }, client_tool_results: { type: "none" } },
+        max_uses: 2,
+        max_content_tokens: 20000,
+        use_cache: false,
+      },
       {
         type: "web_search_20260318",
         name: "web_search",
@@ -303,14 +339,17 @@ describe("checkInjurySubstitution", () => {
     expect(body.system[0].cache_control).toEqual({ type: "ephemeral" });
     expect(body.system[0].text).not.toContain(TODAY);
     expect(body.messages[0].content).toContain(TODAY);
+    // l'unico URL che il modello può leggere è quello scritto dall'app
+    expect(body.messages[0].content.match(/https?:\/\/\S+/g)).toEqual([INJURY_PAGE]);
     expect(body.messages[0].content).toContain("<infortunato>Mario Rossetti</infortunato>");
     expect(body.messages[0].content).toContain("<sostituto>Luca Bianchini</sostituto>");
   });
 
-  it("tiene solo le fonti https di fantacalcio.it citate dopo l'ultima ricerca", async () => {
+  it("tiene solo le fonti https di fantacalcio.it citate dopo l'ultima ricerca, con la pagina degli infortunati per prima", async () => {
     const { llm } = provider([
       message([
         text("Cerco le informazioni.", [cite("https://www.fantacalcio.it/prima-della-ricerca")]),
+        ...pageRead,
         searchUse("srvtoolu_1"),
         searchResult("srvtoolu_1"),
         thinking,
@@ -334,6 +373,7 @@ describe("checkInjurySubstitution", () => {
         kind: "opinion",
         text: verdict,
         sources: [
+          PAGE_SOURCE,
           { url: "https://www.fantacalcio.it/probabili-formazioni-serie-a", title: "Probabili formazioni" },
           { url: "https://leghe.fantacalcio.it/quotazioni", title: "Quotazioni" },
         ],
@@ -343,16 +383,45 @@ describe("checkInjurySubstitution", () => {
 
   it("al massimo 5 fonti", async () => {
     const citations = Array.from({ length: 8 }, (_, i) => cite(`https://www.fantacalcio.it/pagina-${i}`));
-    const { llm } = provider([message([searchUse("s1"), searchResult("s1"), text(verdict, citations)])]);
+    const { llm } = provider([message([...pageRead, searchUse("s1"), searchResult("s1"), text(verdict, citations)])]);
     const result = await llm.checkInjurySubstitution(injuryInput());
     expect(result.ok && result.value.kind === "opinion" && result.value.sources.length).toBe(5);
   });
 
-  it("nessuna fonte valida → not_found", async () => {
+  it("pagina letta ma citazioni non valide → parere con la sola pagina degli infortunati", async () => {
     const { llm } = provider([
-      message([searchUse("s1"), searchResult("s1"), text(verdict, [cite("https://altrosito.it/x"), cite("http://fantacalcio.it/x")])]),
+      message([...pageRead, searchUse("s1"), searchResult("s1"), text(verdict, [cite("https://altrosito.it/x"), cite("http://fantacalcio.it/x")])]),
     ]);
-    expect(await llm.checkInjurySubstitution(injuryInput())).toEqual({ ok: true, value: { kind: "not_found" } });
+    expect(await llm.checkInjurySubstitution(injuryInput())).toEqual({
+      ok: true,
+      value: { kind: "opinion", text: verdict, sources: [PAGE_SOURCE] },
+    });
+  });
+
+  it("senza la pagina degli infortunati letta → not_found, anche con fonti di ricerca valide", async () => {
+    const searchOnly = [searchUse("s1"), searchResult("s1"), text(verdict, [cite("https://www.fantacalcio.it/x")])];
+    expect(await provider([message(searchOnly)]).llm.checkInjurySubstitution(injuryInput())).toEqual({
+      ok: true,
+      value: { kind: "not_found" },
+    });
+    const failed = [fetchUse("f1"), fetchError("f1"), ...searchOnly];
+    expect(await provider([message(failed)]).llm.checkInjurySubstitution(injuryInput())).toEqual({
+      ok: true,
+      value: { kind: "not_found" },
+    });
+    const otherPage = [fetchUse("f1", "https://www.fantacalcio.it/altra-pagina"), fetchResult("f1", "https://www.fantacalcio.it/altra-pagina"), ...searchOnly];
+    expect(await provider([message(otherPage)]).llm.checkInjurySubstitution(injuryInput())).toEqual({
+      ok: true,
+      value: { kind: "not_found" },
+    });
+  });
+
+  it("usa solo il testo scritto dopo la lettura della pagina", async () => {
+    const { llm } = provider([message([text("Leggo la pagina. "), ...pageRead, text(verdict)])]);
+    expect(await llm.checkInjurySubstitution(injuryInput())).toEqual({
+      ok: true,
+      value: { kind: "opinion", text: verdict, sources: [PAGE_SOURCE] },
+    });
   });
 
   it("senza ricerca e senza citazioni → not_found", async () => {
@@ -361,7 +430,7 @@ describe("checkInjurySubstitution", () => {
   });
 
   it("pause_turn: rimanda la risposta in pausa con gli stessi tools e unisce i blocchi", async () => {
-    const paused = [text("Cerco."), searchUse("s1"), searchResult("s1"), searchUse("s2")];
+    const paused = [text("Cerco."), ...pageRead, searchUse("s1"), searchResult("s1"), searchUse("s2")];
     const { llm, calls } = provider([
       message(paused, "pause_turn"),
       message([searchResult("s2"), text(verdict, [cite("https://www.fantacalcio.it/infortuni")])]),
@@ -369,7 +438,7 @@ describe("checkInjurySubstitution", () => {
     const result = await llm.checkInjurySubstitution(injuryInput());
     expect(result).toEqual({
       ok: true,
-      value: { kind: "opinion", text: verdict, sources: [{ url: "https://www.fantacalcio.it/infortuni", title: "Fantacalcio" }] },
+      value: { kind: "opinion", text: verdict, sources: [PAGE_SOURCE, { url: "https://www.fantacalcio.it/infortuni", title: "Fantacalcio" }] },
     });
     expect(calls).toHaveLength(2);
     const second = calls[1]!.body;
@@ -423,7 +492,7 @@ describe("checkInjurySubstitution", () => {
 
   it("rimuove dal testo caratteri di controllo e di direzione", async () => {
     const { llm } = provider([
-      message([searchUse("s1"), searchResult("s1"), text("No:‮ non si\u0007 può.", [cite("https://www.fantacalcio.it/x")])]),
+      message([...pageRead, searchUse("s1"), searchResult("s1"), text("No:‮ non si\u0007 può.", [cite("https://www.fantacalcio.it/x")])]),
     ]);
     const result = await llm.checkInjurySubstitution(injuryInput());
     expect(result.ok && result.value.kind === "opinion" && result.value.text).toBe("No: non si può.");

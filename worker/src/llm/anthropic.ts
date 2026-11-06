@@ -8,6 +8,7 @@ import {
   buildInjuryUserMessage,
   buildRuleSystem,
   buildRuleUserMessage,
+  INJURY_PAGE_URL,
   RULE_ANSWER_SCHEMA,
 } from "./prompts";
 import type {
@@ -47,6 +48,19 @@ const WEB_SEARCH_TOOL: Anthropic.WebSearchTool20260318 = {
   max_uses: 5,
   user_location: { type: "approximate", country: "IT", timezone: "Europe/Rome" },
 };
+
+// Legge solo URL scritti dall'app nel messaggio, cioè la pagina degli infortunati (fail closed)
+const WEB_FETCH_TOOL: Anthropic.WebFetchTool20260318 = {
+  type: "web_fetch_20260318",
+  name: "web_fetch",
+  allowed_domains: ["www.fantacalcio.it"],
+  allowed_callers: ["direct"],
+  url_sources: { user_input: { type: "all" }, server_tool_results: { type: "none" }, client_tool_results: { type: "none" } },
+  max_uses: 2,
+  max_content_tokens: 20_000,
+  use_cache: false,
+};
+const INJURY_PAGE_TITLE = "Infortunati Serie A";
 
 const UNSAFE_TEXT_CHARS = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F‪-‮⁦-⁩]/gu;
 
@@ -128,7 +142,7 @@ async function checkInjurySubstitution(
         model: ANTHROPIC_MODEL,
         max_tokens: INJURY_MAX_TOKENS,
         system,
-        tools: [WEB_SEARCH_TOOL],
+        tools: [WEB_FETCH_TOOL, WEB_SEARCH_TOOL],
         messages,
         output_config: { effort: "medium" },
       }, { signal });
@@ -147,12 +161,14 @@ async function checkInjurySubstitution(
     messages.push({ role: "assistant", content: message.content });
   }
 
-  const finalBlocks = blocksAfterLastSearchResult(blocks);
+  const finalBlocks = blocksAfterLastToolResult(blocks);
   const text = cleanText(joinText(finalBlocks));
   if (text.length === 0 || text.length > MAX_TEXT_LENGTH) return fail({ kind: "bad_output", status: null });
 
-  const sources = collectSources(finalBlocks);
-  if (sources.length === 0) return ok(Object.freeze({ kind: "not_found" as const }));
+  // Senza la pagina degli infortunati i tempi di recupero non hanno la fonte richiesta
+  const injuryPage = fetchedInjuryPage(blocks);
+  if (!injuryPage) return ok(Object.freeze({ kind: "not_found" as const }));
+  const sources = collectSources(finalBlocks, injuryPage);
   return ok(Object.freeze({ kind: "opinion" as const, text, sources }));
 }
 
@@ -180,14 +196,24 @@ function cleanText(text: string): string {
   return text.replace(UNSAFE_TEXT_CHARS, "").trim();
 }
 
-function blocksAfterLastSearchResult(blocks: readonly Anthropic.ContentBlock[]): Anthropic.ContentBlock[] {
-  const last = blocks.findLastIndex((block) => block.type === "web_search_tool_result");
+function blocksAfterLastToolResult(blocks: readonly Anthropic.ContentBlock[]): Anthropic.ContentBlock[] {
+  const last = blocks.findLastIndex((block) => block.type === "web_search_tool_result" || block.type === "web_fetch_tool_result");
   return blocks.slice(last + 1);
 }
 
-function collectSources(blocks: readonly Anthropic.ContentBlock[]): Source[] {
-  const sources: Source[] = [];
-  const seen = new Set<string>();
+function fetchedInjuryPage(blocks: readonly Anthropic.ContentBlock[]): Source | null {
+  const expected = toTrustedSource(INJURY_PAGE_URL, INJURY_PAGE_TITLE);
+  for (const block of blocks) {
+    if (block.type !== "web_fetch_tool_result" || block.content.type !== "web_fetch_result") continue;
+    const fetched = toTrustedSource(block.content.url, INJURY_PAGE_TITLE);
+    if (fetched && expected && fetched.url === expected.url) return expected;
+  }
+  return null;
+}
+
+function collectSources(blocks: readonly Anthropic.ContentBlock[], first: Source): Source[] {
+  const sources: Source[] = [first];
+  const seen = new Set<string>([first.url]);
   for (const block of blocks) {
     if (block.type !== "text" || !block.citations) continue;
     for (const citation of block.citations) {
