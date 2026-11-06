@@ -1,0 +1,6 @@
+# Copia questo file in .dev.vars (ignorato da git) per lo sviluppo locale.
+# Genera ogni valore con: openssl rand -base64 32
+SESSION_SECRET=
+ENCRYPTION_KEY=
+# In locale il sito gira su Vite
+ALLOWED_ORIGIN=http://localhost:5173

@@ -1,0 +1,23 @@
+{
+  "name": "fantropico-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "types": "wrangler types",
+    "typecheck": "wrangler types && tsc --noEmit",
+    "test": "vitest run",
+    "db:migrate:local": "wrangler d1 migrations apply fantropico --local",
+    "db:migrate:remote": "wrangler d1 migrations apply fantropico --remote"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "1.6.0"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "1.6.0",
+    "typescript": "6.0.3",
+    "vitest": "5.1.0",
+    "wrangler": "4.158.0"
+  }
+}

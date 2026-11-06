@@ -1,0 +1,14 @@
+# Segreti: mai nel repository
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+.env
+.env.*
+!.env.example
+
+node_modules/
+dist/
+.wrangler/
+coverage/
+worker-configuration.d.ts
+.DS_Store
