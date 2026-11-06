@@ -84,7 +84,8 @@ export async function renderChat(root, { navigate, isCurrent }) {
   const textarea = h("textarea", { id: "question", class: "textarea textarea--question", rows: "2", maxlength: String(MAX_QUESTION), placeholder: "Scrivi qui" });
   const length = h("span", {}, `0/${MAX_QUESTION}`);
   const send = h("button", { type: "submit", class: "btn btn--send", "aria-label": "Invia" }, icon("send"));
-  textarea.addEventListener("input", () => (length.textContent = `${textarea.value.length}/${MAX_QUESTION}`));
+  const updateLength = () => (length.textContent = `${textarea.value.length}/${MAX_QUESTION}`);
+  textarea.addEventListener("input", updateLength);
   textarea.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) form.requestSubmit();
   });
@@ -100,6 +101,8 @@ export async function renderChat(root, { navigate, isCurrent }) {
           const question = textarea.value.trim();
           if (send.disabled || question.length < 3) return;
           send.disabled = true;
+          textarea.value = "";
+          updateLength();
           empty.remove();
           thread.append(h("div", { class: "bubble" }, question));
           const pending = h("article", { class: "answer" }, h("p", { class: "answer__text answer__text--muted" }, "Cerco nel regolamento..."));
@@ -109,10 +112,13 @@ export async function renderChat(root, { navigate, isCurrent }) {
             const data = await api("/api/questions", { method: "POST", body: { question } });
             pending.replaceWith(answerCard(data.answer));
             counter.textContent = remainingText(data.remainingToday, me.usage.dailyLimit);
-            textarea.value = "";
-            length.textContent = `0/${MAX_QUESTION}`;
           } catch (error) {
             pending.replaceWith(h("p", { class: "alert alert--error", role: "alert" }, messageOf(error)));
+            // Se la domanda non è andata, torna nel campo (salvo che nel frattempo ne sia stata scritta un'altra)
+            if (textarea.value === "") {
+              textarea.value = question;
+              updateLength();
+            }
           } finally {
             send.disabled = false;
           }
