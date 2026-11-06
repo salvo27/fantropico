@@ -4,7 +4,8 @@ import { LOGIN_ATTEMPT_RETENTION_SECONDS } from "../abuse/login-attempts";
 import { romeDay } from "../domain/time";
 
 const DAY_MS = 86_400_000;
-export const DAILY_USAGE_RETENTION_DAYS = 7;
+// Copre tutto il mese in corso, per le domande per membro nel pannello admin
+export const DAILY_USAGE_RETENTION_DAYS = 35;
 export const REMOVED_MEMBER_RETENTION_DAYS = 30;
 export const AUDIT_RETENTION_DAYS = 365;
 export const INACTIVE_LEAGUE_RETENTION_DAYS = 60;

@@ -3,7 +3,12 @@
 
 import { MAX_ACTIVE_MEMBERS, type Member } from "../domain/league";
 import { MemberId, parseRole, type LeagueId, type MemberName, type Role } from "../domain/primitives";
+import { romeDay, romeMonth } from "../domain/time";
 import { auditStatement, DataIntegrityError } from "./leagues";
+
+// Nuove identità per lega nelle ultime 24 ore: uscire e rientrare con nomi sempre diversi non aggira il limite giornaliero
+export const MAX_NEW_MEMBERS_PER_DAY = MAX_ACTIVE_MEMBERS;
+const DAY_MS = 86_400_000;
 
 interface MemberRow {
   id: string;
@@ -47,33 +52,68 @@ export async function findAdmin(db: D1Database, leagueId: LeagueId): Promise<Mem
   return toMember(row, leagueId);
 }
 
-export type JoinOutcome = "joined" | "name_taken" | "league_full";
+export type JoinOutcome =
+  | { readonly kind: "joined"; readonly memberId: MemberId; readonly tokenVersion: number }
+  | { readonly kind: "name_taken" | "league_full" | "too_many_joins" };
 
-// Il tetto dei membri e l'unicità del nome sono controllati nella stessa istruzione di inserimento
-export async function insertMember(db: D1Database, leagueId: LeagueId, memberId: MemberId, name: MemberName, now: Date): Promise<JoinOutcome> {
-  const [inserted] = await db.batch([
+// Chi era uscito (o era stato rimosso) e rientra con lo stesso nome riprende la sua riga: stessi contatori, token nuovo.
+// Tetto dei membri, unicità del nome e tetto dei nuovi ingressi sono controllati nelle stesse istruzioni di scrittura.
+export async function joinMember(db: D1Database, leagueId: LeagueId, newId: MemberId, name: MemberName, now: Date): Promise<JoinOutcome> {
+  const at = now.toISOString();
+  const dayAgo = new Date(now.getTime() - DAY_MS).toISOString();
+  const [reactivated, , inserted] = await db.batch<{ id: string; token_version: number }>([
+    db
+      .prepare(
+        `UPDATE members SET status = 'active', removed_at = NULL, token_version = token_version + 1
+         WHERE id = (SELECT id FROM members WHERE league_id = ?1 AND name_key = ?2 AND role = 'member' AND status = 'removed'
+                     ORDER BY removed_at DESC LIMIT 1)
+           AND NOT EXISTS (SELECT 1 FROM members WHERE league_id = ?1 AND name_key = ?2 AND status = 'active')
+           AND (SELECT count(*) FROM members WHERE league_id = ?1 AND status = 'active') < ?3
+         RETURNING id, token_version`,
+      )
+      .bind(leagueId.value, name.key, MAX_ACTIVE_MEMBERS),
+    db
+      .prepare(
+        `INSERT INTO audit_events (league_id, actor_member_id, action, created_at)
+         SELECT ?1, (SELECT id FROM members WHERE league_id = ?1 AND name_key = ?2 AND status = 'active'), 'member_joined', ?3
+         WHERE changes() = 1`,
+      )
+      .bind(leagueId.value, name.key, at),
     db
       .prepare(
         `INSERT INTO members (id, league_id, name, name_key, role, status, token_version, joined_at)
          SELECT ?1, ?2, ?3, ?4, 'member', 'active', 1, ?5
          WHERE (SELECT count(*) FROM members WHERE league_id = ?2 AND status = 'active') < ?6
+           AND (SELECT count(*) FROM members WHERE league_id = ?2 AND joined_at >= ?7) < ?8
          ON CONFLICT DO NOTHING`,
       )
-      .bind(memberId.value, leagueId.value, name.value, name.key, now.toISOString(), MAX_ACTIVE_MEMBERS),
+      .bind(newId.value, leagueId.value, name.value, name.key, at, MAX_ACTIVE_MEMBERS, dayAgo, MAX_NEW_MEMBERS_PER_DAY),
     db
       .prepare(
         `INSERT INTO audit_events (league_id, actor_member_id, action, created_at)
          SELECT ?1, ?2, 'member_joined', ?3 WHERE changes() = 1`,
       )
-      .bind(leagueId.value, memberId.value, now.toISOString()),
+      .bind(leagueId.value, newId.value, at),
   ]);
-  if (inserted?.meta.changes === 1) return "joined";
 
-  const taken = await db
-    .prepare("SELECT 1 AS taken FROM members WHERE league_id = ?1 AND name_key = ?2 AND status = 'active'")
+  const back = reactivated?.results[0];
+  if (back) {
+    const id = MemberId.parse(back.id);
+    if (!id.ok || !Number.isInteger(back.token_version) || back.token_version < 1) throw new DataIntegrityError("members");
+    return { kind: "joined", memberId: id.value, tokenVersion: back.token_version };
+  }
+  if (inserted?.meta.changes === 1) return { kind: "joined", memberId: newId, tokenVersion: 1 };
+
+  const state = await db
+    .prepare(
+      `SELECT EXISTS (SELECT 1 FROM members WHERE league_id = ?1 AND name_key = ?2 AND status = 'active') AS taken,
+              (SELECT count(*) FROM members WHERE league_id = ?1 AND status = 'active') AS active`,
+    )
     .bind(leagueId.value, name.key)
-    .first();
-  return taken ? "name_taken" : "league_full";
+    .first<{ taken: number; active: number }>();
+  if (state?.taken) return { kind: "name_taken" };
+  if ((state?.active ?? MAX_ACTIVE_MEMBERS) >= MAX_ACTIVE_MEMBERS) return { kind: "league_full" };
+  return { kind: "too_many_joins" };
 }
 
 // Solo i partecipanti attivi si possono rimuovere, mai l'admin; la versione del token sale e le sessioni cadono subito
@@ -100,17 +140,29 @@ export interface MemberListItem {
   readonly name: string;
   readonly role: Role;
   readonly joinedAt: string;
+  readonly questionsToday: number;
+  readonly questionsThisMonth: number;
 }
 
-export async function listActiveMembers(db: D1Database, leagueId: LeagueId): Promise<MemberListItem[]> {
+function isCount(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0;
+}
+
+// Domande per membro, verifiche comprese: oggi e nel mese in corso (ora italiana)
+export async function listActiveMembers(db: D1Database, leagueId: LeagueId, now: Date): Promise<MemberListItem[]> {
   const { results } = await db
-    .prepare("SELECT id, name, role, joined_at FROM members WHERE league_id = ?1 AND status = 'active' ORDER BY role = 'admin' DESC, joined_at")
-    .bind(leagueId.value)
-    .all<{ id: string; name: string; role: string; joined_at: string }>();
+    .prepare(
+      `SELECT m.id, m.name, m.role, m.joined_at,
+              coalesce((SELECT d.count FROM daily_usage d WHERE d.member_id = m.id AND d.day = ?2), 0) AS today,
+              coalesce((SELECT sum(d.count) FROM daily_usage d WHERE d.member_id = m.id AND d.day >= ?3), 0) AS month
+       FROM members m WHERE m.league_id = ?1 AND m.status = 'active' ORDER BY m.role = 'admin' DESC, m.joined_at`,
+    )
+    .bind(leagueId.value, romeDay(now), `${romeMonth(now)}-01`)
+    .all<{ id: string; name: string; role: string; joined_at: string; today: unknown; month: unknown }>();
   return results.map((row) => {
     const role = parseRole(row.role);
-    if (!role.ok) throw new DataIntegrityError("members");
-    return { id: row.id, name: row.name, role: role.value, joinedAt: row.joined_at };
+    if (!role.ok || !isCount(row.today) || !isCount(row.month)) throw new DataIntegrityError("members");
+    return { id: row.id, name: row.name, role: role.value, joinedAt: row.joined_at, questionsToday: row.today, questionsThisMonth: row.month };
   });
 }
 

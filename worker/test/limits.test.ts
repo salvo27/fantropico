@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { DailyLimit, JoinCode, LeagueId, MemberId } from "../src/domain/primitives";
 import { romeDay } from "../src/domain/time";
 import { LOGIN_ATTEMPT_RETENTION_SECONDS } from "../src/abuse/login-attempts";
-import { AUDIT_RETENTION_DAYS, cleanupOldData, REMOVED_MEMBER_RETENTION_DAYS } from "../src/usage/cleanup";
+import { AUDIT_RETENTION_DAYS, cleanupOldData, DAILY_USAGE_RETENTION_DAYS, REMOVED_MEMBER_RETENTION_DAYS } from "../src/usage/cleanup";
 import { getDailyUsage, releaseDailyQuestion, reserveDailyQuestion } from "../src/usage/daily-limit";
 import { getMonthlyQuestions, recordAnsweredQuestion } from "../src/usage/monthly";
 
@@ -217,13 +217,14 @@ describe("pulizia dei dati vecchi", () => {
     return rows.results.map((r) => r.day);
   }
 
-  it("cancella i contatori più vecchi di 7 giorni e tiene gli altri", async () => {
+  it("cancella i contatori più vecchi di 35 giorni e tiene gli altri, così il mese in corso è sempre completo", async () => {
     const { members } = await createLeague();
     const member = members[0]!;
     const day = (offset: number) => romeDay(new Date(NOW.getTime() - offset * DAY_MS));
-    for (const offset of [0, 1, 7, 8, 30]) await insertUsage(member, day(offset));
+    for (const offset of [0, 1, 30, 35, 36, 60]) await insertUsage(member, day(offset));
     await cleanupOldData(env.DB, NOW);
-    expect(await usageDays(member)).toEqual([day(7), day(1), day(0)]);
+    expect(await usageDays(member)).toEqual([day(35), day(30), day(1), day(0)]);
+    expect(DAILY_USAGE_RETENTION_DAYS).toBeGreaterThan(31);
   });
 
   it("cancella il registro admin più vecchio di un anno", async () => {

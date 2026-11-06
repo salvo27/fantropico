@@ -4,7 +4,7 @@ import { reserveLoginAttempt } from "../abuse/login-attempts";
 import { ipSubject, isThrottled, recordAttempt } from "../abuse/throttle";
 import { field, type Ctx, type Route } from "../app";
 import { createLeague, findLeagueById, findLeagueIdByJoinCode, generateUniqueJoinCode, getSecrets } from "../db/leagues";
-import { findAdmin, insertMember, recordAdminLogin } from "../db/members";
+import { findAdmin, joinMember, recordAdminLogin } from "../db/members";
 import type { League, Member } from "../domain/league";
 import { AdminPassword, AnthropicApiKey, DailyLimit, JoinCode, LeagueId, LeagueName, MemberId, MemberName } from "../domain/primitives";
 import { Errors } from "../http/errors";
@@ -87,12 +87,13 @@ async function joinRoute(ctx: Ctx): Promise<Response> {
   const league = await findLeagueById(ctx.db, leagueId);
   if (!league) throw await fail(new HttpError(Errors.wrongCode));
 
-  const memberId = MemberId.generate();
-  const outcome = await insertMember(ctx.db, leagueId, memberId, name, ctx.now);
-  if (outcome === "name_taken") throw new HttpError(Errors.nameTaken);
-  if (outcome === "league_full") throw new HttpError(Errors.leagueFull);
+  const outcome = await joinMember(ctx.db, leagueId, MemberId.generate(), name, ctx.now);
+  if (outcome.kind !== "joined") {
+    const errors = { name_taken: Errors.nameTaken, league_full: Errors.leagueFull, too_many_joins: Errors.tooManyJoins };
+    throw new HttpError(errors[outcome.kind]);
+  }
 
-  const token = await issueToken(ctx, { id: memberId, leagueId, role: "member", tokenVersion: 1 });
+  const token = await issueToken(ctx, { id: outcome.memberId, leagueId, role: "member", tokenVersion: outcome.tokenVersion });
   return json(sessionBody(token, league, { name: name.value, role: "member" }), ctx.origin, 201);
 }
 

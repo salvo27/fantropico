@@ -34,7 +34,7 @@ export function renderAdminLogin(root, { navigate }) {
               body: { code: code.input.value.trim(), password: password.input.value },
             });
             password.input.value = "";
-            saveSession(data);
+            saveSession({ ...data, joinCode: code.input.value.trim().toUpperCase() });
             navigate("admin");
           });
         },

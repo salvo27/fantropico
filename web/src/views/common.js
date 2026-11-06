@@ -72,12 +72,13 @@ export function joinForm({ navigate, code = "", title = "Entra in una lega" }) {
         submit: (event) => {
           event.preventDefault();
           run(async () => {
+            const joinCode = codeField.input.value.trim().toUpperCase();
             const data = await api("/api/join", {
               method: "POST",
               auth: false,
-              body: { code: codeField.input.value.trim(), name: nameField.input.value.trim() },
+              body: { code: joinCode, name: nameField.input.value.trim() },
             });
-            saveSession(data);
+            saveSession({ ...data, joinCode });
             navigate("domande");
           });
         },

@@ -2,6 +2,7 @@
 
 import { field, requireMember, type Ctx, type Route } from "../app";
 import { findLeagueById, getRulebook, getRulebookMeta } from "../db/leagues";
+import { removeMember } from "../db/members";
 import {
   ADMIN_CONFIRMS_TEXT,
   ADMIN_DECIDES_TEXT,
@@ -140,8 +141,17 @@ async function injuryCheckRoute(ctx: Ctx): Promise<Response> {
   return json({ answer: injuryBody(value, today), remainingToday: remaining }, ctx.origin);
 }
 
+// Un partecipante esce dalla lega: il nome si libera e le sue sessioni cadono. L'admin non può uscire così.
+async function leaveRoute(ctx: Ctx): Promise<Response> {
+  const member = await requireMember(ctx);
+  if (member.role !== "member") throw new HttpError(Errors.forbidden);
+  await removeMember(ctx.db, member.leagueId, member.id, member.id, ctx.now);
+  return json({ left: true }, ctx.origin);
+}
+
 export const memberRoutes: readonly Route[] = [
   { method: "GET", pattern: /^\/api\/me$/, handler: meRoute },
+  { method: "POST", pattern: /^\/api\/me\/leave$/, handler: leaveRoute },
   { method: "POST", pattern: /^\/api\/questions$/, handler: questionRoute },
   { method: "POST", pattern: /^\/api\/injury-checks$/, handler: injuryCheckRoute },
 ];

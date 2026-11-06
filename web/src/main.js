@@ -43,6 +43,8 @@ function render() {
   if (route.auth && !session) return navigate("");
   if (route.admin && session?.role !== "admin") return navigate("domande");
   if (route.guest && session && path !== "accesso-admin" && path !== "entra") return navigate("domande");
+  // Link d'invito della lega in cui si è già dentro
+  if (path === "entra" && session?.joinCode && (params.get("codice") ?? "").trim().toUpperCase() === session.joinCode) return navigate("domande");
 
   const token = ++renderToken;
   const isCurrent = () => token === renderToken;

@@ -15,6 +15,7 @@ export type ErrorCode =
   | "name_taken"
   | "league_full"
   | "too_many_attempts"
+  | "too_many_joins"
   | "daily_limit_reached"
   | "no_rulebook"
   | "injury_check_disabled"
@@ -70,6 +71,7 @@ export const Errors = {
   nameTaken: { status: 409, code: "name_taken", message: "Questo nome è già usato nella lega. Scegline un altro." },
   leagueFull: { status: 409, code: "league_full", message: "La lega ha raggiunto il numero massimo di partecipanti." },
   tooManyAttempts: { status: 429, code: "too_many_attempts", message: "Troppi tentativi. Riprova tra qualche minuto." },
+  tooManyJoins: { status: 429, code: "too_many_joins", message: "Troppi nuovi ingressi in questa lega oggi. Riprova domani." },
   dailyLimitReached: { status: 429, code: "daily_limit_reached", message: "Hai finito le domande di oggi. Riprova domani." },
   noRulebook: { status: 409, code: "no_rulebook", message: "L'admin non ha ancora caricato il regolamento." },
   injuryCheckDisabled: { status: 403, code: "injury_check_disabled", message: "La verifica infortuni non è attiva in questa lega." },

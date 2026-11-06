@@ -1,6 +1,12 @@
 // Sessione nel browser: solo il token firmato e i dati da mostrare, niente altro
 
 const KEY = "fantropico.session";
+export const JOIN_CODE_FORMAT = /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{8}$/;
+
+// Il codice lega serve solo a riconoscere il link d'invito della propria lega
+function validCode(code) {
+  return typeof code === "string" && JOIN_CODE_FORMAT.test(code) ? code : null;
+}
 
 export function loadSession() {
   try {
@@ -9,14 +15,15 @@ export function loadSession() {
     const data = JSON.parse(raw);
     if (typeof data?.token !== "string" || data.token.length > 600) return null;
     if (data.role !== "admin" && data.role !== "member") return null;
+    data.joinCode = validCode(data.joinCode);
     return data;
   } catch {
     return null;
   }
 }
 
-export function saveSession({ token, league, member }) {
-  const data = { token, leagueName: league.name, memberName: member.name, role: member.role };
+export function saveSession({ token, league, member, joinCode }) {
+  const data = { token, leagueName: league.name, memberName: member.name, role: member.role, joinCode: validCode(league.joinCode ?? joinCode) };
   try {
     localStorage.setItem(KEY, JSON.stringify(data));
   } catch {
@@ -28,7 +35,14 @@ export function saveSession({ token, league, member }) {
 
 export function updateToken(token) {
   const current = getSession();
-  if (current) saveSession({ token, league: { name: current.leagueName }, member: { name: current.memberName, role: current.role } });
+  if (current) saveSession({ token, league: { name: current.leagueName }, member: { name: current.memberName, role: current.role }, joinCode: current.joinCode });
+}
+
+export function updateJoinCode(joinCode) {
+  const current = getSession();
+  if (current && current.joinCode !== joinCode) {
+    saveSession({ token: current.token, league: { name: current.leagueName }, member: { name: current.memberName, role: current.role }, joinCode });
+  }
 }
 
 export function clearSession() {

@@ -43,7 +43,7 @@ async function overviewRoute(ctx: Ctx): Promise<Response> {
     getRulebookMeta(ctx.db, league.id),
     getApiKeyUpdatedAt(ctx.db, league.id),
     getMonthlyQuestions(ctx.db, league.id, ctx.now),
-    listActiveMembers(ctx.db, league.id),
+    listActiveMembers(ctx.db, league.id, ctx.now),
   ]);
   return json(
     {

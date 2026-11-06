@@ -194,19 +194,20 @@ npm run deploy -w worker
    La chiave viene verificata con Anthropic prima di essere salvata.
 2. Dal pannello admin carica il regolamento (PDF, DOCX, TXT o Markdown). Il testo viene estratto nel browser: rileggilo, correggi gli errori di estrazione e salvalo. Il massimo è 150.000 caratteri. Puoi aggiornarlo o sostituirlo quando vuoi.
 3. Condividi il link d'invito o il codice lega. Il link ha la forma `https://<sito>/#/entra?codice=XXXXXXXX`: il codice sta dopo il `#`, così non arriva nei log del server.
-4. I partecipanti entrano scegliendo un nome. Non serve nessuna password.
+4. I partecipanti entrano scegliendo un nome. Non serve nessuna password. Restano dentro per 180 giorni sullo stesso telefono e browser: riaprendo il sito, o il link d'invito della loro lega, vanno dritti alle domande.
+5. "Esci" nel menu fa uscire un partecipante dalla lega e libera il suo nome: può rientrare quando vuole con il link o il codice, anche con lo stesso nome, e ritrova il conteggio delle domande del giorno. Per l'admin, "Esci" chiude solo la sessione su quel dispositivo.
 
 Se nessuno usa la lega per 60 giorni (nessun accesso di partecipanti o admin), la lega viene cancellata in automatico con tutti i suoi dati: chiave API, regolamento, membri, contatori e registro. Ogni accesso fa ripartire i 60 giorni.
 
 Nel pannello admin puoi anche:
 
-- rimuovere un partecipante. La sua sessione cade subito. Dopo una rimozione conviene rigenerare il codice, altrimenti chi è stato rimosso può rientrare con un altro nome.
+- rimuovere un partecipante. La sua sessione cade subito. Dopo una rimozione conviene rigenerare il codice, altrimenti chi è stato rimosso può rientrare.
 - rigenerare il codice lega. Chi è già dentro resta dentro.
 - cambiare il limite di domande al giorno, da 1 a 100. Il predefinito è 20 e vale anche per l'admin.
 - attivare o spegnere la verifica infortuni.
 - sostituire la chiave API. La chiave salvata non viene mai mostrata, solo la data dell'ultimo aggiornamento.
 - cambiare la password admin. Le altre sessioni admin cadono.
-- vedere quante domande sono state fatte nel mese.
+- vedere quante domande sono state fatte nel mese, in tutto e da ogni partecipante (oggi e nel mese, verifiche comprese).
 
 Per entrare come admin da un altro dispositivo usa "Accesso admin" con codice lega e password.
 
@@ -232,12 +233,12 @@ Verifica infortuni (se l'admin la attiva):
 - Le sessioni usano token firmati con HMAC. A ogni richiesta il Worker ricontrolla che il membro sia ancora attivo, quindi una rimozione o un cambio password le revoca subito.
 - CORS e controllo dell'Origin accettano solo il dominio del sito.
 - Ogni input viene validato per tipo, lunghezza e caratteri ammessi. Gli errori mostrano messaggi fissi e non ripetono mai l'input.
-- I limiti giornalieri sono contati in D1 con un aggiornamento atomico. Una domanda viene restituita solo se il modello non ha potuto rispondere per motivi tecnici; un rifiuto o una risposta non valida contano.
+- I limiti giornalieri sono contati in D1 con un aggiornamento atomico. Una domanda viene restituita solo se il modello non ha potuto rispondere per motivi tecnici; un rifiuto o una risposta non valida contano. Uscire e rientrare non azzera il limite: con lo stesso nome si riprende il proprio conteggio, e con nomi nuovi una lega accetta al massimo 40 nuovi ingressi ogni 24 ore.
 - Tentativi di accesso admin: al massimo 5 ogni 15 minuti per IP (anche quelli riusciti) e 50 all'ora per lega, contati in D1 prima di controllare la password, così le richieste in parallelo non aggirano il limite.
 - Codici sbagliati e creazione di leghe hanno freni per IP in KV. Gli IP sono salvati solo come hash, e gli IPv6 sono raggruppati per rete (/64).
 - Le chiamate al modello hanno un tempo massimo: 45 secondi per una domanda, 120 per una verifica infortuni.
 - Domande e risposte non vengono salvate: restano solo i contatori.
-- Il registro delle azioni admin non contiene contenuti. Un cron ogni giorno alle 03:00 UTC cancella le leghe inutilizzate da 60 giorni, i contatori giornalieri dopo 7 giorni, i tentativi di accesso dopo un giorno, i membri rimossi dopo 30 giorni e il registro dopo 365 giorni.
+- Il registro delle azioni admin non contiene contenuti. Un cron ogni giorno alle 03:00 UTC cancella le leghe inutilizzate da 60 giorni, i contatori giornalieri dopo 35 giorni (servono per le domande del mese per partecipante), i tentativi di accesso dopo un giorno, i membri rimossi dopo 30 giorni e il registro dopo 365 giorni.
 - I log automatici delle richieste di Cloudflare sono disattivati: restano solo i log scritti dal codice, che contengono il tipo di evento e mai dati personali o chiavi.
 - Per una protezione in più si può aggiungere nella dashboard Cloudflare una regola di rate limiting sulle rotte `/api/join`, `/api/admin/login` e `/api/leagues`.
 

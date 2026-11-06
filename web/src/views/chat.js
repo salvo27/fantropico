@@ -29,12 +29,7 @@ export function leagueBar({ me, navigate, current }) {
   if (current !== "domande") menu.append(item("Domande sul regolamento", () => navigate("domande")));
   if (me?.league.injuryCheckEnabled && current !== "verifica") menu.append(item("Verifica sostituzione", () => navigate("verifica")));
   if (session?.role === "admin") menu.append(item("Pannello admin", () => navigate("admin")));
-  menu.append(
-    item("Esci", () => {
-      clearSession();
-      navigate("");
-    }),
-  );
+  menu.append(item("Esci", () => leave(session, navigate)));
 
   return h(
     "header",
@@ -48,6 +43,25 @@ export function leagueBar({ me, navigate, current }) {
     toggle,
     menu,
   );
+}
+
+// Il partecipante esce davvero dalla lega e libera il nome; l'admin chiude solo la sessione su questo dispositivo
+async function leave(session, navigate) {
+  if (session?.role === "member") {
+    if (!confirm("Vuoi uscire dalla lega? Potrai rientrare quando vuoi con il link o il codice, anche con lo stesso nome.")) return;
+    try {
+      await api("/api/me/leave", { method: "POST" });
+    } catch (error) {
+      // Sessione già scaduta o revocata: api.js l'ha già chiusa
+      if (!getSession()) return navigate("");
+      alert(messageOf(error));
+      return;
+    }
+  } else if (!confirm("Vuoi uscire da questo dispositivo? Per rientrare come admin ti serviranno codice lega e password.")) {
+    return;
+  }
+  clearSession();
+  navigate("");
 }
 
 export function remainingText(remaining, limit) {

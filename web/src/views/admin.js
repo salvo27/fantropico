@@ -1,7 +1,7 @@
 import { api } from "../api.js";
 import { DISCLAIMER, errorBox, field, formatDate, formatNumber, h } from "../dom.js";
 import { extractText, ExtractError, MAX_RULEBOOK_CHARS } from "../extract.js";
-import { updateToken } from "../session.js";
+import { updateJoinCode, updateToken } from "../session.js";
 import { backBar, messageOf, submitting } from "./common.js";
 import { invitePanel } from "./invite.js";
 
@@ -117,6 +117,7 @@ function inviteSection(overview) {
     errors.clear();
     try {
       ({ joinCode: code } = await api("/api/admin/join-code", { method: "POST" }));
+      updateJoinCode(code);
       draw();
     } catch (error) {
       errors.show(messageOf(error));
@@ -144,7 +145,12 @@ function membersSection(overview, invite) {
         h(
           "div",
           { class: "member" },
-          h("span", {}, member.name),
+          h(
+            "div",
+            {},
+            h("span", {}, member.name),
+            h("p", { class: "muted small" }, `Domande: ${formatNumber(member.questionsToday)} oggi, ${formatNumber(member.questionsThisMonth)} questo mese`),
+          ),
           member.role === "admin"
             ? h("span", { class: "muted" }, "admin")
             : h("button", { type: "button", class: "btn btn--danger-text", "aria-label": `Rimuovi ${member.name}`, on: { click: () => remove(member) } }, "Rimuovi"),
@@ -344,6 +350,7 @@ export async function renderAdmin(root, { navigate, isCurrent }) {
     return;
   }
   if (!isCurrent()) return;
+  updateJoinCode(overview.league.joinCode);
 
   const invite = inviteSection(overview);
   root.append(
