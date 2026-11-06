@@ -16,8 +16,8 @@
     "crons": ["0 3 * * *"]
   },
   "vars": {
-    // Indirizzo del sito: l'unico origin accettato
-    "ALLOWED_ORIGIN": "https://fantropico.fantropico-worker.workers.dev"
+    // Indirizzo del sito su Cloudflare Pages: l'unico origin accettato
+    "ALLOWED_ORIGIN": "https://fantropico.pages.dev"
   },
   "d1_databases": [
     {
