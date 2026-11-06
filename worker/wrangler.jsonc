@@ -23,16 +23,14 @@
     {
       "binding": "DB",
       "database_name": "fantropico",
-      // Sostituisci con l'id stampato da `wrangler d1 create fantropico`
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "0a15985b-7b4e-4470-8804-826a6b5cd8d5",
       "migrations_dir": "migrations"
     }
   ],
   "kv_namespaces": [
     {
       "binding": "ABUSE_KV",
-      // Sostituisci con l'id stampato da `wrangler kv namespace create ABUSE_KV`
-      "id": "00000000000000000000000000000000"
+      "id": "50ed80839c1b4b94a3328c74df1a1b31"
     }
   ]
 }
