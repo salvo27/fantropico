@@ -47,20 +47,23 @@ export function leagueBar({ me, navigate, current }) {
 
 // Il partecipante esce davvero dalla lega e libera il nome; l'admin chiude solo la sessione su questo dispositivo
 async function leave(session, navigate) {
-  if (session?.role === "member") {
+  if (!session) return navigate("");
+  if (session.role === "member") {
     if (!confirm("Vuoi uscire dalla lega? Potrai rientrare quando vuoi con il link o il codice, anche con lo stesso nome.")) return;
     try {
-      await api("/api/me/leave", { method: "POST" });
+      await api("/api/me/leave", { method: "POST", token: session.token });
     } catch (error) {
-      // Sessione già scaduta o revocata: api.js l'ha già chiusa
-      if (!getSession()) return navigate("");
-      alert(messageOf(error));
-      return;
+      // Una sessione già revocata si chiude come un'uscita; gli altri errori lasciano tutto com'è
+      if (error?.code !== "unauthorized") {
+        alert(messageOf(error));
+        return;
+      }
     }
   } else if (!confirm("Vuoi uscire da questo dispositivo? Per rientrare come admin ti serviranno codice lega e password.")) {
     return;
   }
-  clearSession();
+  // Solo la sessione di questa scheda: se un'altra scheda ne ha salvata una nuova, resta
+  clearSession(session.token);
   navigate("");
 }
 
@@ -89,6 +92,7 @@ export async function renderChat(root, { navigate, isCurrent }) {
     return;
   }
   if (!isCurrent()) return;
+  window.dispatchEvent(new CustomEvent("fantropico:session-ok"));
 
   const counter = h("p", { class: "counter", "aria-live": "polite" }, remainingText(me.usage.remainingToday, me.usage.dailyLimit));
   const thread = h("section", { class: "thread", "aria-live": "polite", "aria-label": "Domande e risposte" });

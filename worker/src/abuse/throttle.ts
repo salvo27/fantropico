@@ -4,11 +4,13 @@
 
 import type { LeagueId } from "../domain/primitives";
 
-export type ThrottleAction = "join_failure" | "league_create";
+export type ThrottleAction = "join_failure" | "join_success" | "league_create";
 
 export const THROTTLE_RULES: Readonly<Record<ThrottleAction, { readonly limit: number; readonly windowSeconds: number }>> =
   Object.freeze({
     join_failure: Object.freeze({ limit: 10, windowSeconds: 900 }),
+    // Ingressi con codice valido dallo stesso IP (contati prima della scrittura): un gruppo di amici sulla stessa rete ci sta largo
+    join_success: Object.freeze({ limit: 20, windowSeconds: 3_600 }),
     league_create: Object.freeze({ limit: 3, windowSeconds: 86_400 }),
   });
 

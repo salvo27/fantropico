@@ -147,7 +147,9 @@ async function checkInjurySubstitution(
         output_config: { effort: "medium" },
       }, { signal });
     } catch (error) {
-      return fail(errorToFailure(error));
+      const info = errorToFailure(error);
+      // Dopo una continuazione il modello ha già lavorato (ed è stato pagato): niente restituzione della domanda
+      return fail(continuation > 0 ? { kind: "incomplete", status: info.status } : info);
     }
     blocks.push(...message.content);
 

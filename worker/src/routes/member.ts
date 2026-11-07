@@ -57,7 +57,7 @@ async function withDailyQuestion<T>(
   call: (provider: LlmProvider) => Promise<Result<T, LlmFailure>>,
 ): Promise<{ value: T; remaining: number }> {
   const reserved = await reserveDailyQuestion(ctx.db, member.id, league.dailyLimit, ctx.now);
-  if (!reserved.ok) throw new HttpError(Errors.dailyLimitReached);
+  if (!reserved.ok) throw new HttpError(reserved.error === "daily_limit_reached" ? Errors.dailyLimitReached : Errors.leagueDailyLimitReached);
 
   let result: Result<T, LlmFailure>;
   try {

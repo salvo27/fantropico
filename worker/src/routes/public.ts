@@ -71,7 +71,11 @@ async function createLeagueRoute(ctx: Ctx): Promise<Response> {
 
 async function joinRoute(ctx: Ctx): Promise<Response> {
   const ip = await ipSubject(ctx.request, await ctx.ipKey());
-  if (await isThrottled(ctx.env.ABUSE_KV, ip, "join_failure", ctx.now)) throw new HttpError(Errors.tooManyAttempts);
+  const [failures, successes] = await Promise.all([
+    isThrottled(ctx.env.ABUSE_KV, ip, "join_failure", ctx.now),
+    isThrottled(ctx.env.ABUSE_KV, ip, "join_success", ctx.now),
+  ]);
+  if (failures || successes) throw new HttpError(Errors.tooManyAttempts);
   const fail = async (error: HttpError) => {
     await recordAttempt(ctx.env.ABUSE_KV, ip, "join_failure", ctx.now);
     return error;
@@ -87,6 +91,8 @@ async function joinRoute(ctx: Ctx): Promise<Response> {
   const league = await findLeagueById(ctx.db, leagueId);
   if (!league) throw await fail(new HttpError(Errors.wrongCode));
 
+  // Conteggio prima della scrittura in D1: se KV fallisce (per esempio 1 scrittura al secondo per chiave) non resta un membro senza token
+  await recordAttempt(ctx.env.ABUSE_KV, ip, "join_success", ctx.now);
   const outcome = await joinMember(ctx.db, leagueId, MemberId.generate(), name, ctx.now);
   if (outcome.kind !== "joined") {
     const errors = { name_taken: Errors.nameTaken, league_full: Errors.leagueFull, too_many_joins: Errors.tooManyJoins };

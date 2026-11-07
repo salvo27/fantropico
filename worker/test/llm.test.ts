@@ -449,6 +449,11 @@ describe("checkInjurySubstitution", () => {
     expect(second.messages[1].content.map((b: { type: string }) => b.type)).toEqual(paused.map((b) => b.type));
   });
 
+  it("un errore dopo una continuazione → incomplete, perché il modello ha già lavorato e la domanda conta", async () => {
+    const { llm } = provider([message([text("Cerco."), ...pageRead, searchUse("s1")], "pause_turn"), apiError(529, "overloaded_error")]);
+    expect(await llm.checkInjurySubstitution(injuryInput())).toEqual({ ok: false, error: "incomplete" });
+  });
+
   it("troppe pause (oltre 3 continuazioni) → bad_output, perché il modello ha già consumato token", async () => {
     const pause = message([searchUse("s1")], "pause_turn");
     const { llm, calls } = provider([pause, pause, pause, pause, message([text(verdict)])]);

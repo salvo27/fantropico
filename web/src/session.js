@@ -45,9 +45,11 @@ export function updateJoinCode(joinCode) {
   }
 }
 
-export function clearSession() {
+// Con `token` cancella solo se la sessione salvata è ancora quella: un'altra scheda può averne già salvata una nuova
+export function clearSession(token) {
   memory = null;
   try {
+    if (token && loadSession()?.token !== token) return;
     localStorage.removeItem(KEY);
   } catch {
     // niente da fare

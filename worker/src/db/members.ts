@@ -6,9 +6,15 @@ import { MemberId, parseRole, type LeagueId, type MemberName, type Role } from "
 import { romeDay, romeMonth } from "../domain/time";
 import { auditStatement, DataIntegrityError } from "./leagues";
 
-// Nuove identità per lega nelle ultime 24 ore: uscire e rientrare con nomi sempre diversi non aggira il limite giornaliero
+// Ingressi per lega nelle ultime 24 ore (nomi nuovi e rientri di nomi diversi): frena chi entra ed esce a ripetizione.
+// Il conteggio riparte quando l'admin rigenera il codice, così chi ha il vecchio codice non può bloccare la lega.
 export const MAX_NEW_MEMBERS_PER_DAY = MAX_ACTIVE_MEMBERS;
 const DAY_MS = 86_400_000;
+// Inizio della finestra: 24 ore fa, o l'ultima rigenerazione del codice se più recente (stringhe ISO, confronto cronologico)
+function joinWindowStart(leagueParam: string, dayAgoParam: string): string {
+  return `max(${dayAgoParam}, coalesce((SELECT max(created_at) FROM audit_events
+    WHERE league_id = ${leagueParam} AND action = 'join_code_regenerated'), ''))`;
+}
 
 interface MemberRow {
   id: string;
@@ -57,21 +63,24 @@ export type JoinOutcome =
   | { readonly kind: "name_taken" | "league_full" | "too_many_joins" };
 
 // Chi era uscito (o era stato rimosso) e rientra con lo stesso nome riprende la sua riga: stessi contatori, token nuovo.
-// Tetto dei membri, unicità del nome e tetto dei nuovi ingressi sono controllati nelle stesse istruzioni di scrittura.
+// joined_at diventa l'ultimo ingresso. Tetto dei membri, unicità del nome e tetto degli ingressi stanno nelle stesse scritture;
+// una riga già entrata nella finestra può rientrare senza occupare un altro posto.
 export async function joinMember(db: D1Database, leagueId: LeagueId, newId: MemberId, name: MemberName, now: Date): Promise<JoinOutcome> {
   const at = now.toISOString();
   const dayAgo = new Date(now.getTime() - DAY_MS).toISOString();
   const [reactivated, , inserted] = await db.batch<{ id: string; token_version: number }>([
     db
       .prepare(
-        `UPDATE members SET status = 'active', removed_at = NULL, token_version = token_version + 1
+        `UPDATE members SET status = 'active', removed_at = NULL, name = ?3, joined_at = ?6, token_version = token_version + 1
          WHERE id = (SELECT id FROM members WHERE league_id = ?1 AND name_key = ?2 AND role = 'member' AND status = 'removed'
                      ORDER BY removed_at DESC LIMIT 1)
            AND NOT EXISTS (SELECT 1 FROM members WHERE league_id = ?1 AND name_key = ?2 AND status = 'active')
-           AND (SELECT count(*) FROM members WHERE league_id = ?1 AND status = 'active') < ?3
+           AND (SELECT count(*) FROM members WHERE league_id = ?1 AND status = 'active') < ?4
+           AND (joined_at >= ${joinWindowStart("?1", "?7")}
+                OR (SELECT count(*) FROM members WHERE league_id = ?1 AND joined_at >= ${joinWindowStart("?1", "?7")}) < ?5)
          RETURNING id, token_version`,
       )
-      .bind(leagueId.value, name.key, MAX_ACTIVE_MEMBERS),
+      .bind(leagueId.value, name.key, name.value, MAX_ACTIVE_MEMBERS, MAX_NEW_MEMBERS_PER_DAY, at, dayAgo),
     db
       .prepare(
         `INSERT INTO audit_events (league_id, actor_member_id, action, created_at)
@@ -84,7 +93,7 @@ export async function joinMember(db: D1Database, leagueId: LeagueId, newId: Memb
         `INSERT INTO members (id, league_id, name, name_key, role, status, token_version, joined_at)
          SELECT ?1, ?2, ?3, ?4, 'member', 'active', 1, ?5
          WHERE (SELECT count(*) FROM members WHERE league_id = ?2 AND status = 'active') < ?6
-           AND (SELECT count(*) FROM members WHERE league_id = ?2 AND joined_at >= ?7) < ?8
+           AND (SELECT count(*) FROM members WHERE league_id = ?2 AND joined_at >= ${joinWindowStart("?2", "?7")}) < ?8
          ON CONFLICT DO NOTHING`,
       )
       .bind(newId.value, leagueId.value, name.value, name.key, at, MAX_ACTIVE_MEMBERS, dayAgo, MAX_NEW_MEMBERS_PER_DAY),

@@ -1,6 +1,6 @@
 import { api, ApiError } from "../api.js";
 import { DISCLAIMER, errorBox, field, h, icon } from "../dom.js";
-import { saveSession } from "../session.js";
+import { getSession, saveSession } from "../session.js";
 
 export function footer() {
   return h("p", { class: "footer-note" }, DISCLAIMER);
@@ -73,12 +73,16 @@ export function joinForm({ navigate, code = "", title = "Entra in una lega" }) {
           event.preventDefault();
           run(async () => {
             const joinCode = codeField.input.value.trim().toUpperCase();
+            const previous = getSession();
             const data = await api("/api/join", {
               method: "POST",
               auth: false,
               body: { code: joinCode, name: nameField.input.value.trim() },
             });
             saveSession({ ...data, joinCode });
+            // Un partecipante che entra con un altro nome o in un'altra lega esce da dove era prima, così il vecchio nome si libera.
+            // Si fa dopo aver salvato la sessione nuova e senza aspettare: se non riesce, l'admin può rimuovere il vecchio nome.
+            if (previous?.role === "member") api("/api/me/leave", { method: "POST", token: previous.token }).catch(() => {});
             navigate("domande");
           });
         },

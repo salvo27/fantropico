@@ -16,25 +16,32 @@ function limit(n: number): DailyLimit {
   return parsed.value;
 }
 
-async function createLeague(memberCount = 1): Promise<{ leagueId: LeagueId; members: MemberId[] }> {
-  const leagueId = LeagueId.generate();
-  const createdAt = new Date().toISOString();
-  await env.DB.prepare(
-    "INSERT INTO leagues (id, name, join_code, daily_limit, injury_check_enabled, created_at) VALUES (?1, ?2, ?3, 20, 0, ?4)",
-  )
-    .bind(leagueId.value, "Lega Test", JoinCode.generate().value, createdAt)
-    .run();
+let memberCounter = 0;
+
+async function addMembers(leagueId: LeagueId, count: number, joinedAt: Date): Promise<MemberId[]> {
   const members: MemberId[] = [];
-  for (let i = 0; i < memberCount; i++) {
+  for (let i = 0; i < count; i++) {
     const memberId = MemberId.generate();
+    memberCounter++;
     await env.DB.prepare(
       "INSERT INTO members (id, league_id, name, name_key, role, status, token_version, joined_at) VALUES (?1, ?2, ?3, ?4, 'member', 'active', 1, ?5)",
     )
-      .bind(memberId.value, leagueId.value, `Membro ${i}`, `membro ${i}`, createdAt)
+      .bind(memberId.value, leagueId.value, `Membro ${memberCounter}`, `membro ${memberCounter}`, joinedAt.toISOString())
       .run();
     members.push(memberId);
   }
-  return { leagueId, members };
+  return members;
+}
+
+// Di base i membri sono entrati prima di NOW (residenti); `joinedAt` permette di farli entrare "oggi"
+async function createLeague(memberCount = 1, joinedAt = new Date(NOW.getTime() - 2 * DAY_MS)): Promise<{ leagueId: LeagueId; members: MemberId[] }> {
+  const leagueId = LeagueId.generate();
+  await env.DB.prepare(
+    "INSERT INTO leagues (id, name, join_code, daily_limit, injury_check_enabled, created_at) VALUES (?1, ?2, ?3, 20, 0, ?4)",
+  )
+    .bind(leagueId.value, "Lega Test", JoinCode.generate().value, new Date().toISOString())
+    .run();
+  return { leagueId, members: await addMembers(leagueId, memberCount, joinedAt) };
 }
 
 async function reserveTimes(memberId: MemberId, max: DailyLimit, times: number, now = NOW) {
@@ -42,6 +49,64 @@ async function reserveTimes(memberId: MemberId, max: DailyLimit, times: number, 
   for (let i = 0; i < times; i++) results.push(await reserveDailyQuestion(env.DB, memberId, max, now));
   return results;
 }
+
+describe("limite giornaliero della lega", () => {
+  // NOW è alle 13:00 di Roma: un minuto prima è "oggi", due giorni prima è prima di oggi
+  const TODAY = new Date(NOW.getTime() - 60_000);
+  const reserve = (member: MemberId, now = NOW) => reserveDailyQuestion(env.DB, member, limit(1), now);
+
+  it("chi è entrato oggi si divide i posti rimasti, chi era già dentro ha sempre il suo limite", async () => {
+    const { leagueId, members: residents } = await createLeague(1);
+    const newcomers = await addMembers(leagueId, 41, TODAY);
+    // limite 1: per chi entra oggi restano (40 - 1 residente) x 1 = 39 domande
+    for (const member of newcomers.slice(0, 39)) expect((await reserve(member)).ok).toBe(true);
+    expect(await reserve(newcomers[39]!)).toEqual({ ok: false, error: "league_daily_limit_reached" });
+    expect(await getDailyUsage(env.DB, newcomers[39]!, NOW)).toBe(0);
+    expect((await reserve(residents[0]!)).ok).toBe(true);
+    // il giorno dopo chi era entrato è residente e ha di nuovo il suo limite
+    expect((await reserve(newcomers[40]!, new Date(NOW.getTime() + DAY_MS))).ok).toBe(true);
+  });
+
+  it("chi esce porta via il nome, non le domande già fatte", async () => {
+    const { leagueId } = await createLeague(0);
+    const newcomers = await addMembers(leagueId, 41, TODAY);
+    for (const member of newcomers.slice(0, 40)) expect((await reserve(member)).ok).toBe(true);
+    await env.DB.prepare("UPDATE members SET status = 'removed', removed_at = ?2 WHERE id = ?1").bind(newcomers[0]!.value, NOW.toISOString()).run();
+    expect(await reserve(newcomers[40]!)).toEqual({ ok: false, error: "league_daily_limit_reached" });
+  });
+
+  it("un residente che esce e rientra oggi passa tra i nuovi: il totale della lega resta entro 40 x limite", async () => {
+    const { leagueId, members: residents } = await createLeague(39);
+    const newcomers = await addMembers(leagueId, 3, TODAY);
+    for (const member of residents) expect((await reserve(member)).ok).toBe(true);
+    // il residente 0 rientra oggi: le sue domande di oggi contano tra quelle dei nuovi
+    await env.DB.prepare("UPDATE members SET joined_at = ?2 WHERE id = ?1").bind(residents[0]!.value, TODAY.toISOString()).run();
+    const results = [];
+    for (const member of newcomers) results.push((await reserve(member)).ok);
+    expect(results).toEqual([true, false, false]);
+    const total = await env.DB.prepare(
+      "SELECT sum(d.count) AS n FROM daily_usage d JOIN members m ON m.id = d.member_id WHERE m.league_id = ?1 AND d.day = ?2",
+    )
+      .bind(leagueId.value, romeDay(NOW))
+      .first<{ n: number }>();
+    expect(total?.n).toBe(40);
+  });
+
+  it("richieste contemporanee non superano il tetto della lega", async () => {
+    const { leagueId } = await createLeague(0);
+    const newcomers = await addMembers(leagueId, 45, TODAY);
+    const results = await Promise.all(newcomers.map((m) => reserve(m)));
+    expect(results.filter((r) => r.ok)).toHaveLength(40);
+  });
+
+  it("le altre leghe non contano", async () => {
+    const full = await createLeague(0);
+    for (const member of await addMembers(full.leagueId, 40, TODAY)) await reserve(member);
+    const other = await createLeague(0);
+    const [member] = await addMembers(other.leagueId, 1, TODAY);
+    expect((await reserve(member!)).ok).toBe(true);
+  });
+});
 
 describe("limite giornaliero", () => {
   it("con limite 20 la 20a domanda passa e la 21a no", async () => {

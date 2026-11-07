@@ -15,11 +15,13 @@ export class ApiError extends Error {
 
 const NETWORK_MESSAGE = "Non riesco a contattare il server. Controlla la connessione e riprova.";
 
-export async function api(path, { method = "GET", body, auth = true } = {}) {
+// `token` usa un token diverso da quello della sessione salvata (per uscire dalla lega precedente)
+export async function api(path, { method = "GET", body, auth = true, token } = {}) {
   const headers = {};
   if (body !== undefined) headers["Content-Type"] = "application/json";
-  const session = getSession();
-  if (auth && session) headers.Authorization = `Bearer ${session.token}`;
+  const session = token ? null : getSession();
+  const bearer = token ?? (auth ? session?.token : undefined);
+  if (bearer) headers.Authorization = `Bearer ${bearer}`;
 
   let response;
   try {
@@ -47,7 +49,7 @@ export async function api(path, { method = "GET", body, auth = true } = {}) {
     const code = typeof data?.error?.code === "string" ? data.error.code : "unknown";
     const message = typeof data?.error?.message === "string" ? data.error.message : "Si è verificato un errore. Riprova più tardi.";
     if (code === "unauthorized" && auth && session) {
-      clearSession();
+      clearSession(session.token);
       window.dispatchEvent(new CustomEvent("fantropico:logout"));
     }
     throw new ApiError(response.status, code, message);

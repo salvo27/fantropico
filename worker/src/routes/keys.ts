@@ -42,6 +42,7 @@ export function llmFailureError(failure: LlmFailure): HttpError {
       return new HttpError(Errors.llmRefused);
     case "unavailable":
     case "bad_output":
+    case "incomplete":
       return new HttpError(Errors.llmUnavailable);
   }
 }

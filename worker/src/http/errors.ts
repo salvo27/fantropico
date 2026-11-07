@@ -17,6 +17,7 @@ export type ErrorCode =
   | "too_many_attempts"
   | "too_many_joins"
   | "daily_limit_reached"
+  | "league_daily_limit_reached"
   | "no_rulebook"
   | "injury_check_disabled"
   | "invalid_api_key"
@@ -73,6 +74,11 @@ export const Errors = {
   tooManyAttempts: { status: 429, code: "too_many_attempts", message: "Troppi tentativi. Riprova tra qualche minuto." },
   tooManyJoins: { status: 429, code: "too_many_joins", message: "Troppi nuovi ingressi in questa lega oggi. Riprova domani." },
   dailyLimitReached: { status: 429, code: "daily_limit_reached", message: "Hai finito le domande di oggi. Riprova domani." },
+  leagueDailyLimitReached: {
+    status: 429,
+    code: "league_daily_limit_reached",
+    message: "Le domande di oggi per chi è entrato oggi nella lega sono finite. Riprova domani.",
+  },
   noRulebook: { status: 409, code: "no_rulebook", message: "L'admin non ha ancora caricato il regolamento." },
   injuryCheckDisabled: { status: 403, code: "injury_check_disabled", message: "La verifica infortuni non è attiva in questa lega." },
   invalidApiKey: { status: 400, code: "invalid_api_key", message: "La chiave API non è valida o non ha accesso al modello." },

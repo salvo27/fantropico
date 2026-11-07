@@ -9,7 +9,13 @@ function alreadyIn(session, navigate) {
     { class: "alert alert--info" },
     h("p", {}, `Sei già entrato in ${session.leagueName} come ${session.memberName}.`),
     h("button", { type: "button", class: "btn", on: { click: () => navigate("domande") } }, "Vai alle domande"),
-    h("p", { class: "muted small" }, "Se entri in un'altra lega con il modulo qui sotto, su questo dispositivo esci da questa."),
+    h(
+      "p",
+      { class: "muted small" },
+      session.role === "admin"
+        ? "Se entri in un'altra lega con il modulo qui sotto, su questo dispositivo esci dal pannello admin: potrai rientrare con codice e password."
+        : "Se entri con il modulo qui sotto, esci dalla lega in cui sei adesso e il tuo nome lì si libera.",
+    ),
   );
 }
 

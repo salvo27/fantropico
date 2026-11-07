@@ -16,7 +16,8 @@ export type InjuryOpinion =
   | { readonly kind: "opinion"; readonly text: string; readonly sources: readonly Source[] }
   | { readonly kind: "not_found" };
 
-export type LlmFailure = "invalid_key" | "rate_limited" | "overloaded" | "refused" | "unavailable" | "bad_output";
+// "incomplete": la verifica si è interrotta dopo almeno una chiamata al modello già pagata, quindi la domanda conta
+export type LlmFailure = "invalid_key" | "rate_limited" | "overloaded" | "refused" | "unavailable" | "bad_output" | "incomplete";
 
 export interface RuleQuestionInput {
   readonly rulebook: RulebookText;

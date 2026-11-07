@@ -34,17 +34,23 @@ export function navigate(path) {
 }
 
 let renderToken = 0;
+let pendingInvite = null;
 
 function render() {
   const { path, params } = parseHash();
   const route = ROUTES[path] ?? ROUTES[""];
   const session = getSession();
+  // Il codice dell'invito serve solo al controllo della sessione subito dopo il reindirizzamento
+  if (path !== "domande") pendingInvite = null;
 
   if (route.auth && !session) return navigate("");
   if (route.admin && session?.role !== "admin") return navigate("domande");
   if (route.guest && session && path !== "accesso-admin" && path !== "entra") return navigate("domande");
-  // Link d'invito della lega in cui si è già dentro
-  if (path === "entra" && session?.joinCode && (params.get("codice") ?? "").trim().toUpperCase() === session.joinCode) return navigate("domande");
+  // Link d'invito della lega in cui si è già dentro: se poi la sessione risulta revocata, si torna al modulo con il codice
+  if (path === "entra" && session?.joinCode && (params.get("codice") ?? "").trim().toUpperCase() === session.joinCode) {
+    pendingInvite = session.joinCode;
+    return navigate("domande");
+  }
 
   const token = ++renderToken;
   const isCurrent = () => token === renderToken;
@@ -54,5 +60,10 @@ function render() {
 }
 
 window.addEventListener("hashchange", render);
-window.addEventListener("fantropico:logout", () => navigate(""));
+window.addEventListener("fantropico:session-ok", () => (pendingInvite = null));
+window.addEventListener("fantropico:logout", () => {
+  const code = pendingInvite;
+  pendingInvite = null;
+  navigate(code ? `entra?codice=${code}` : "");
+});
 render();

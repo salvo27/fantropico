@@ -177,6 +177,15 @@ describe("Verifica sostituzione", () => {
     return { status: res.status, body: (await res.json()) as AnswerBody };
   }
 
+  it("una verifica interrotta dopo lavoro del modello già pagato conta come domanda", async () => {
+    const llm = fakeLlm();
+    llm.injuryOpinion = err("incomplete");
+    const { app, member, admin } = await setup(llm);
+    await app("/api/admin/settings", { method: "PATCH", token: admin, body: { injuryCheckEnabled: true } });
+    expect((await check(app, member)).status).toBe(502);
+    expect(await remaining(app, member)).toBe(19);
+  });
+
   it("è disattivata finché l'admin non la attiva", async () => {
     const { app, member, admin, llm } = await setup();
     expect((await check(app, member)).status).toBe(403);
